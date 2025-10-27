@@ -49,8 +49,7 @@ function validateCountryData(data) {
     data.population < 0
   ) {
     errors.population = "must be a positive number";
-  }
-  // Only require currency_code if it was successfully parsed (i.e., not explicitly set to null/0 during refresh)
+  } // Only require currency_code if it was successfully parsed (i.e., not explicitly set to null/0 during refresh)
   if (!data.currency_code) {
     errors.currency_code = "is required";
   }
@@ -69,18 +68,18 @@ async function cacheDataInMySQL(data, connection) {
   console.log(`Caching ${data.length} records in MySQL...`);
 
   const sql = `
-        INSERT INTO country_cache 
-        (name, capital, region, population, currency_code, exchange_rate, estimated_gdp, flag_url)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-        capital = VALUES(capital),
-        region = VALUES(region),
-        population = VALUES(population),
-        currency_code = VALUES(currency_code),
-        exchange_rate = VALUES(exchange_rate),
-        estimated_gdp = VALUES(estimated_gdp),
-        flag_url = VALUES(flag_url);
-    `;
+        INSERT INTO country_cache 
+        (name, capital, region, population, currency_code, exchange_rate, estimated_gdp, flag_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+        capital = VALUES(capital),
+        region = VALUES(region),
+        population = VALUES(population),
+        currency_code = VALUES(currency_code),
+        exchange_rate = VALUES(exchange_rate),
+        estimated_gdp = VALUES(estimated_gdp),
+        flag_url = VALUES(flag_url);
+    `;
 
   for (const record of data) {
     const values = [
@@ -93,9 +92,6 @@ async function cacheDataInMySQL(data, connection) {
       record.estimated_gdp,
       record.flag_url,
     ];
-    // Skip records that fail required validation (if this were a manual POST route)
-    // For the refresh route, we assume external data is structurally sound,
-    // but let's keep the core fields safe.
 
     await connection.execute(sql, values);
   }
@@ -107,19 +103,17 @@ async function cacheDataInMySQL(data, connection) {
  */
 async function updateStatus(connection, totalCountries) {
   const now = new Date().toISOString();
-  const nowMySQL = now.slice(0, 19).replace("T", " "); // Format for MySQL TIMESTAMP
+  const nowMySQL = now.slice(0, 19).replace("T", " "); // Format for MySQL TIMESTAMP // Update total countries
 
-  // Update total countries
   await connection.execute(
     `INSERT INTO api_status (key_name, value_data) VALUES ('total_countries', ?) 
-         ON DUPLICATE KEY UPDATE value_data = VALUES(value_data)`,
+         ON DUPLICATE KEY UPDATE value_data = VALUES(value_data)`,
     [totalCountries.toString()]
-  );
+  ); // Update last refresh timestamp
 
-  // Update last refresh timestamp
   await connection.execute(
     `INSERT INTO api_status (key_name, value_data) VALUES ('last_refreshed_at', ?) 
-         ON DUPLICATE KEY UPDATE value_data = VALUES(value_data)`,
+         ON DUPLICATE KEY UPDATE value_data = VALUES(value_data)`,
     [nowMySQL]
   );
   return now; // Return ISO string for API response
@@ -162,19 +156,16 @@ async function getCurrencyData() {
       let estimated_gdp = null;
 
       const population = country.population || 0;
-      const currencies = country.currencies;
+      const currencies = country.currencies; // --- Currency Handling ---
 
-      // --- Currency Handling ---
       if (currencies && currencies.length > 0 && currencies[0].code) {
-        currencyCode = currencies[0].code;
+        currencyCode = currencies[0].code; // --- Rate Lookup and GDP Calculation ---
 
-        // --- Rate Lookup and GDP Calculation ---
         if (rates.hasOwnProperty(currencyCode)) {
           rate = rates[currencyCode];
 
           if (population > 0 && rate !== 0) {
-            const gdpMultiplier = getRandomInt(1000, 2000);
-            // Formula: estimated_gdp = population × random(1000–2000) ÷ exchange_rate
+            const gdpMultiplier = getRandomInt(1000, 2000); // Formula: estimated_gdp = population × random(1000–2000) ÷ exchange_rate
             estimated_gdp = (population * gdpMultiplier) / rate;
           } else {
             estimated_gdp = 0; // Valid currency, but population is zero
@@ -188,9 +179,8 @@ async function getCurrencyData() {
       } else {
         // Case: No currency code found. currencyCode/rate remain null, gdp is 0.
         estimated_gdp = 0;
-      }
+      } // --- Build the Cache Object ---
 
-      // --- Build the Cache Object ---
       countriesToCache.push({
         name: country.name,
         capital: country.capital || null,
@@ -216,23 +206,20 @@ async function generateSummaryImage(connection, lastRefreshedAt) {
   const width = 800;
   const height = 400;
   const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d"); // Fetch top 5 for the image
 
-  // Fetch top 5 for the image
   const [topGdpRows] = await connection.execute(
     "SELECT name, estimated_gdp FROM country_cache WHERE estimated_gdp IS NOT NULL ORDER BY estimated_gdp DESC LIMIT 5"
-  );
+  ); // Fetch status
 
-  // Fetch status
   const [statusRows] = await connection.execute("SELECT * FROM api_status");
   const status = statusRows.reduce(
     (acc, row) => ({ ...acc, [row.key_name]: row.value_data }),
     {}
   );
   const totalCountries = status.total_countries || 0;
-  const formattedDate = new Date(lastRefreshedAt).toLocaleString();
+  const formattedDate = new Date(lastRefreshedAt).toLocaleString(); // Drawing Logic
 
-  // Drawing Logic
   ctx.fillStyle = "#f0f0f0";
   ctx.fillRect(0, 0, width, height);
 
@@ -259,9 +246,8 @@ async function generateSummaryImage(connection, lastRefreshedAt) {
       30,
       210 + index * 30
     );
-  });
+  }); // Save the file
 
-  // Save the file
   try {
     await fs.mkdir(path.dirname(CACHE_IMAGE_PATH), { recursive: true });
     const buffer = canvas.toBuffer("image/png");
@@ -281,16 +267,13 @@ app.post("/countries/refresh", async (req, res) => {
   let connection;
   try {
     // 1. Fetch and process data from external APIs
-    const countriesToCache = await getCurrencyData();
+    const countriesToCache = await getCurrencyData(); // 2. Establish connection and cache
 
-    // 2. Establish connection and cache
     connection = await mysql.createConnection(dbConfig);
-    await cacheDataInMySQL(countriesToCache, connection);
+    await cacheDataInMySQL(countriesToCache, connection); // 3. Update the status table
 
-    // 3. Update the status table
-    const refreshTime = await updateStatus(connection, countriesToCache.length);
+    const refreshTime = await updateStatus(connection, countriesToCache.length); // 4. Generate the summary image
 
-    // 4. Generate the summary image
     await generateSummaryImage(connection, refreshTime);
 
     res.status(200).json({
@@ -313,6 +296,25 @@ app.post("/countries/refresh", async (req, res) => {
   }
 });
 
+// ----------------------------------------------------------------
+// ⚠️ FIX IS APPLIED HERE: Static routes before dynamic routes.
+// ----------------------------------------------------------------
+
+/**
+ * GET /countries/image: Serve the generated summary image. (MOVED UP)
+ */
+app.get("/countries/image", async (req, res) => {
+  try {
+    // Check if the file exists before trying to serve it
+    await fs.access(CACHE_IMAGE_PATH); // Serve the file
+
+    res.sendFile(CACHE_IMAGE_PATH);
+  } catch (error) {
+    // If fs.access throws an error (file not found or permission issue)
+    res.status(404).json({ error: "Summary image not found" });
+  }
+});
+
 /**
  * GET /countries: Get all countries from the DB (support filters and sorting).
  */
@@ -322,9 +324,8 @@ app.get("/countries", async (req, res) => {
     const { region, currency, sort } = req.query;
     let sql = "SELECT * FROM country_cache WHERE 1=1";
     const params = [];
-    let orderClause = "";
+    let orderClause = ""; // Filtering
 
-    // Filtering
     if (region) {
       sql += " AND region = ?";
       params.push(region);
@@ -332,16 +333,14 @@ app.get("/countries", async (req, res) => {
     if (currency) {
       sql += " AND currency_code = ?";
       params.push(currency);
-    }
+    } // Sorting
 
-    // Sorting
     if (sort) {
       const [field, direction] = sort.toLowerCase().split("_");
       if (field === "gdp" && (direction === "asc" || direction === "desc")) {
         // Ensure NULL GDP values are handled gracefully (e.g., put last)
         orderClause = ` ORDER BY estimated_gdp IS NULL, estimated_gdp ${direction.toUpperCase()}`;
-      }
-      // Future: Add other sorting fields like 'population', 'name', etc.
+      } // Future: Add other sorting fields like 'population', 'name', etc.
     } else {
       orderClause = " ORDER BY name ASC"; // Default sort
     }
@@ -360,7 +359,8 @@ app.get("/countries", async (req, res) => {
 });
 
 /**
- * GET /countries/:name: Get one country by name.
+ * GET /countries/:name: Get one country by name. (MOVED DOWN)
+ * This must be defined last among all /countries/* routes!
  */
 app.get("/countries/:name", async (req, res) => {
   let connection;
@@ -440,22 +440,6 @@ app.get("/status", async (req, res) => {
       .json({ error: "Internal server error", message: error.message });
   } finally {
     if (connection) await connection.end();
-  }
-});
-
-/**
- * GET /countries/image: Serve the generated summary image.
- */
-app.get("/countries/image", async (req, res) => {
-  try {
-    // Check if the file exists before trying to serve it
-    await fs.access(CACHE_IMAGE_PATH);
-
-    // Serve the file
-    res.sendFile(CACHE_IMAGE_PATH);
-  } catch (error) {
-    // If fs.access throws an error (file not found or permission issue)
-    res.status(404).json({ error: "Summary image not found" });
   }
 });
 
