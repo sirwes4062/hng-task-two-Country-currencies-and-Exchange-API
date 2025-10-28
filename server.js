@@ -23,6 +23,7 @@ const dbConfig = {
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
+  port: process.env.DB_PORT || 3306,
 };
 
 // --- Helper Functions ---
@@ -68,18 +69,18 @@ async function cacheDataInMySQL(data, connection) {
   console.log(`Caching ${data.length} records in MySQL...`);
 
   const sql = `
-        INSERT INTO country_cache 
-        (name, capital, region, population, currency_code, exchange_rate, estimated_gdp, flag_url)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-        capital = VALUES(capital),
-        region = VALUES(region),
-        population = VALUES(population),
-        currency_code = VALUES(currency_code),
-        exchange_rate = VALUES(exchange_rate),
-        estimated_gdp = VALUES(estimated_gdp),
-        flag_url = VALUES(flag_url);
-    `;
+ INSERT INTO country_cache 
+ (name, capital, region, population, currency_code, exchange_rate, estimated_gdp, flag_url)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ ON DUPLICATE KEY UPDATE
+ capital = VALUES(capital),
+ region = VALUES(region),
+ population = VALUES(population),
+ currency_code = VALUES(currency_code),
+ exchange_rate = VALUES(exchange_rate),
+ estimated_gdp = VALUES(estimated_gdp),
+ flag_url = VALUES(flag_url);
+ `;
 
   for (const record of data) {
     const values = [
@@ -106,14 +107,14 @@ async function updateStatus(connection, totalCountries) {
   const nowMySQL = now.slice(0, 19).replace("T", " "); // Format for MySQL TIMESTAMP // Update total countries
 
   await connection.execute(
-    `INSERT INTO api_status (key_name, value_data) VALUES ('total_countries', ?) 
-         ON DUPLICATE KEY UPDATE value_data = VALUES(value_data)`,
+    `INSERT INTO api_status (total_countries) VALUES (?) 
+        ON DUPLICATE KEY UPDATE total_countries = VALUES(total_countries)`,
     [totalCountries.toString()]
   ); // Update last refresh timestamp
 
   await connection.execute(
-    `INSERT INTO api_status (key_name, value_data) VALUES ('last_refreshed_at', ?) 
-         ON DUPLICATE KEY UPDATE value_data = VALUES(value_data)`,
+    `INSERT INTO api_status (last_refreshed_at) VALUES (?) 
+        ON DUPLICATE KEY UPDATE last_refreshed_at = VALUES(last_refreshed_at)`,
     [nowMySQL]
   );
   return now; // Return ISO string for API response
@@ -192,6 +193,7 @@ async function getCurrencyData() {
         flag_url: country.flag || null,
       });
     }
+
     return countriesToCache;
   } catch (error) {
     // Re-throw specific error for the route handler to catch and translate to 503
@@ -270,6 +272,34 @@ app.post("/countries/refresh", async (req, res) => {
     const countriesToCache = await getCurrencyData(); // 2. Establish connection and cache
 
     connection = await mysql.createConnection(dbConfig);
+
+    //   database connection
+    console.log("Database connected successfully!");
+
+    const queries = `CREATE TABLE IF NOT EXISTS country_cache (
+    id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,   
+    capital VARCHAR(255),
+    region VARCHAR(255),
+    currency_code VARCHAR(10),
+    flag_url VARCHAR(512),  
+    population BIGINT DEFAULT 0,
+    exchange_rate DOUBLE,
+    estimated_gdp DOUBLE
+);`;
+
+    const status_query = `
+    
+    CREATE TABLE IF NOT EXISTS api_status (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      last_refreshed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      total_countries INT DEFAULT 0
+    );
+  `;
+
+    await connection.execute(queries);
+    await connection.execute(status_query);
+
     await cacheDataInMySQL(countriesToCache, connection); // 3. Update the status table
 
     const refreshTime = await updateStatus(connection, countriesToCache.length); // 4. Generate the summary image
@@ -282,6 +312,8 @@ app.post("/countries/refresh", async (req, res) => {
       last_refreshed_at: refreshTime,
     });
   } catch (error) {
+    console.log(error.message);
+
     if (error.message.includes("External data source unavailable")) {
       return res.status(503).json({
         error: "External data source unavailable",
@@ -346,6 +378,10 @@ app.get("/countries", async (req, res) => {
     }
 
     connection = await mysql.createConnection(dbConfig);
+
+    //   database connection
+    console.log("Database connected successfully!");
+
     const [rows] = await connection.execute(sql + orderClause, params);
 
     res.json(rows);
@@ -369,6 +405,9 @@ app.get("/countries/:name", async (req, res) => {
     const sql = "SELECT * FROM country_cache WHERE name = ?";
 
     connection = await mysql.createConnection(dbConfig);
+    //   database connection
+    console.log("Database connected successfully!");
+
     const [rows] = await connection.execute(sql, [countryName]);
 
     if (rows.length === 0) {
@@ -395,6 +434,9 @@ app.delete("/countries/:name", async (req, res) => {
     const sql = "DELETE FROM country_cache WHERE name = ?";
 
     connection = await mysql.createConnection(dbConfig);
+    //   database connection
+    console.log("Database connected successfully!");
+
     const [result] = await connection.execute(sql, [countryName]);
 
     if (result.affectedRows === 0) {
@@ -420,6 +462,9 @@ app.get("/status", async (req, res) => {
   let connection;
   try {
     connection = await mysql.createConnection(dbConfig);
+
+    //   database connection
+    console.log("Database connected successfully!");
 
     const [rows] = await connection.execute(
       "SELECT key_name, value_data FROM api_status"
