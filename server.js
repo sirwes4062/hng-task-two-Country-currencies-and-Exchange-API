@@ -215,10 +215,8 @@ async function generateSummaryImage(connection, lastRefreshedAt) {
   ); // Fetch status
 
   const [statusRows] = await connection.execute("SELECT * FROM api_status");
-  const status = statusRows.reduce(
-    (acc, row) => ({ ...acc, [row.key_name]: row.value_data }),
-    {}
-  );
+  const status = statusRows[0] || {};
+
   const totalCountries = status.total_countries || 0;
   const formattedDate = new Date(lastRefreshedAt).toLocaleString(); // Drawing Logic
 
