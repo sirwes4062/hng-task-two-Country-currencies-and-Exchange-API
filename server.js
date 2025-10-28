@@ -467,13 +467,10 @@ app.get("/status", async (req, res) => {
     console.log("Database connected successfully!");
 
     const [rows] = await connection.execute(
-      "SELECT key_name, value_data FROM api_status"
+      "SELECT * FROM api_status WHERE id = 1"
     );
 
-    const status = rows.reduce((acc, row) => {
-      acc[row.key_name] = row.value_data;
-      return acc;
-    }, {});
+    const status = rows[0] || {};
 
     res.json({
       total_countries: parseInt(status.total_countries || "0", 10),
